@@ -77,8 +77,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'attendance_db',
-        'USER': 'attendance_user',
-        'PASSWORD': 'yourpassword',
+        'USER': 'admin',
+        'PASSWORD': '12345',
         'HOST': 'localhost',
         'PORT': '3306',
         'OPTIONS': {
