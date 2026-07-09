@@ -2,8 +2,10 @@
 encoding_generator.py
 
 Reads every Student record that has a photo uploaded (via Django admin),
-detects the face in that photo, generates a 128-d face encoding, and saves
-everything to models/encodings.pickle for the live recognition script to use.
+corrects image orientation based on EXIF data (phone photos often store
+rotation as metadata rather than actual pixel rotation), detects the face,
+generates a 128-d face encoding, and saves everything to
+models/encodings.pickle for the live recognition script to use.
 
 Handles multi-face photos safely: if more than one face is detected in a
 reference photo, that student is SKIPPED (not guessed) and flagged, so a
@@ -17,6 +19,8 @@ import os
 import sys
 import pickle
 import django
+import numpy as np
+from PIL import Image, ImageOps
 import face_recognition
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,6 +30,15 @@ django.setup()
 from students.models import Student  # noqa: E402
 
 OUTPUT_PATH = "models/encodings.pickle"
+
+
+def load_image_corrected(path):
+    """Load an image and apply EXIF-based orientation correction, then
+    return it as an RGB numpy array (what face_recognition expects)."""
+    pil_image = Image.open(path)
+    pil_image = ImageOps.exif_transpose(pil_image)  # fixes phone-camera rotation
+    pil_image = pil_image.convert("RGB")
+    return np.array(pil_image)
 
 
 def generate_encodings():
@@ -49,7 +62,7 @@ def generate_encodings():
             skipped.append((student.student_id, "missing file"))
             continue
 
-        image = face_recognition.load_image_file(photo_path)
+        image = load_image_corrected(photo_path)
         face_locations = face_recognition.face_locations(image)
 
         if len(face_locations) == 0:
