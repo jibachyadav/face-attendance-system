@@ -1,19 +1,27 @@
 """
 encoding_generator.py
 
-Reads every reference photo in images/ (filename = student_id, e.g. S001.jpg),
-detects the face, generates a 128-d face encoding, and saves everything to
-models/encodings.pickle for the live recognition script to use.
+Reads every Student record that has a photo uploaded (via Django admin),
+detects the face in that photo, generates a 128-d face encoding, and saves
+everything to models/encodings.pickle for the live recognition script to use.
 
-Run this once whenever you add/remove reference photos:
+Run this once whenever you add/remove students or update their photo:
     python recognition/encoding_generator.py
 """
 
 import os
+import sys
 import pickle
+import django
 import face_recognition
 
-IMAGES_DIR = "images"
+# --- Bootstrap Django so we can use the ORM outside manage.py ---
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+django.setup()
+
+from students.models import Student  # noqa: E402
+
 OUTPUT_PATH = "models/encodings.pickle"
 
 
@@ -21,32 +29,34 @@ def generate_encodings():
     known_encodings = []
     known_ids = []
 
-    image_files = [f for f in os.listdir(IMAGES_DIR)
-                   if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    students = Student.objects.exclude(photo="").exclude(photo__isnull=True)
 
-    if not image_files:
-        print(f"No images found in '{IMAGES_DIR}/'. Add reference photos first.")
+    if not students.exists():
+        print("No students with a photo found. Add students with photos in the admin panel first.")
         return
 
-    print(f"Found {len(image_files)} image(s). Generating encodings...")
+    print(f"Found {students.count()} student(s) with a photo. Generating encodings...")
 
-    for filename in image_files:
-        student_id = os.path.splitext(filename)[0]
-        path = os.path.join(IMAGES_DIR, filename)
+    for student in students:
+        photo_path = student.photo.path
 
-        image = face_recognition.load_image_file(path)
+        if not os.path.exists(photo_path):
+            print(f"  [SKIP] {student.student_id}: photo file missing on disk ({photo_path})")
+            continue
+
+        image = face_recognition.load_image_file(photo_path)
         face_locations = face_recognition.face_locations(image)
 
         if len(face_locations) == 0:
-            print(f"  [SKIP] {filename}: no face detected")
+            print(f"  [SKIP] {student.student_id}: no face detected in photo")
             continue
         if len(face_locations) > 1:
-            print(f"  [WARN] {filename}: {len(face_locations)} faces found, using the first one")
+            print(f"  [WARN] {student.student_id}: {len(face_locations)} faces found, using the first one")
 
         encoding = face_recognition.face_encodings(image, known_face_locations=[face_locations[0]])[0]
         known_encodings.append(encoding)
-        known_ids.append(student_id)
-        print(f"  [OK] {filename} -> {student_id}")
+        known_ids.append(student.student_id)
+        print(f"  [OK] {student.student_id} ({student.name})")
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "wb") as f:

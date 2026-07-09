@@ -7,6 +7,7 @@ class Student(models.Model):
     major = models.CharField(max_length=100, blank=True, null=True)
     starting_year = models.IntegerField(blank=True, null=True)
     total_attendance = models.IntegerField(default=0)
+    photo = models.ImageField(upload_to="student_photos/", blank=True, null=True)
 
     def __str__(self):
         return f"{self.student_id} - {self.name}"

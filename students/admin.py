@@ -1,5 +1,10 @@
 from django.contrib import admin
 from .models import Student, AttendanceLog
 
-admin.site.register(Student)
+
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ("student_id", "name", "major", "total_attendance")
+
+
+admin.site.register(Student, StudentAdmin)
 admin.site.register(AttendanceLog)
