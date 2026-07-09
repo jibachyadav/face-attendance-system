@@ -3,3 +3,4 @@ face_recognition
 django
 mysqlclient
 numpy
+python-dotenv
