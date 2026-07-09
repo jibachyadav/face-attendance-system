@@ -4,3 +4,4 @@ django
 mysqlclient
 numpy
 python-dotenv
+flake8
