@@ -8,3 +8,4 @@ flake8
 streamlit
 pandas
 plotly
+Pillow
