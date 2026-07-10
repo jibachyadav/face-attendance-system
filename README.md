@@ -16,12 +16,33 @@ A real-time face recognition attendance system built with Django, MariaDB, OpenC
 - **GitHub Actions CI** (lint + Django checks on every push)
 - **Basic accuracy/threshold evaluation script** for documenting recognition behavior
 
-## Tech Stack
+## Tech Stack & Tools
 
-- **Backend**: Django 5.2, MariaDB
-- **Face Recognition**: `face_recognition` (dlib), OpenCV
-- **Dashboard**: Streamlit, Pandas, Plotly
-- **DevOps**: Docker, Docker Compose, GitHub Actions
+**Backend / Database**
+- Django 5.2 — web framework, ORM, admin panel, authentication
+- MariaDB — relational database (Student & AttendanceLog tables)
+- `mysqlclient` — Python/MariaDB driver
+
+**Computer Vision**
+- OpenCV (`opencv-python`) — webcam capture, frame processing, drawing overlays
+- `face_recognition` (built on dlib) — face detection (HOG) and 128-d face encodings
+- Pillow — image loading, EXIF orientation correction
+- NumPy — array operations on image data
+
+**Dashboard / Frontend**
+- Streamlit — interactive dashboard (attendance capture, admin panel)
+- Pandas — data handling for student/attendance tables
+- Plotly — (available for future charting/visualization)
+
+**DevOps & Tooling**
+- Docker & Docker Compose — containerized Django + MariaDB
+- GitHub Actions — CI pipeline (linting + Django checks on every push)
+- flake8 — Python linting
+- python-dotenv — environment variable / secrets management
+
+**Environment**
+- Python 3.10, conda (environment management)
+- Developed on Ubuntu (Dell Inspiron), VS Code
 
 
 ## Demo
