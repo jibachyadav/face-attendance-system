@@ -23,6 +23,21 @@ A real-time face recognition attendance system built with Django, MariaDB, OpenC
 - **Dashboard**: Streamlit, Pandas, Plotly
 - **DevOps**: Docker, Docker Compose, GitHub Actions
 
+
+## Demo
+
+**Main screen — one-click attendance**
+![Take Attendance](screenshots/take_attendance.png)
+
+**Admin panel — student directory and management**
+![Admin Panel](screenshots/admin_panel.png)
+
+**Instant recognition result**
+![Attendance Result](screenshots/attendance_marked.png)
+
+**Live scanning in progress**
+![Scanning](screenshots/scanning_live.png)
+
 ## Architecture
 
 Webcam / Camera
