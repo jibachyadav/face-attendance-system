@@ -1,0 +1,6 @@
+cmake
+build-essential
+pkg-config
+libmariadb-dev
+libgl1
+libglib2.0-0
