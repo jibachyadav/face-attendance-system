@@ -1,10 +1,15 @@
 """
-Streamlit dashboard for the Face Attendance System.
+Streamlit dashboard for the Face Attendance System (LOCAL VERSION).
 
-Main page: browser-camera photo capture for attendance marking
-(works both locally and when deployed to Streamlit Community Cloud).
+Main page: fully automatic continuous camera scan for attendance marking.
 Sidebar: hidden-by-default admin login (Django username OR email + password)
          -> student directory + add/delete student + attendance log viewer.
+
+NOTE: This version uses cv2.VideoCapture for a continuous auto-scanning loop,
+which only works when run locally (it accesses the camera on the machine
+running this script). It cannot be deployed to a remote host like Streamlit
+Community Cloud -- for that, a browser-camera (st.camera_input) version would
+be needed instead, with a click-to-capture flow.
 
 Run from the project root:
     streamlit run dashboard/app.py
@@ -15,8 +20,7 @@ import sys
 import time
 import pickle
 import subprocess
-import numpy as np
-from PIL import Image
+import cv2
 import face_recognition
 import pandas as pd
 import streamlit as st
@@ -33,6 +37,9 @@ from django.utils import timezone  # noqa: E402
 
 ENCODINGS_PATH = "models/encodings.pickle"
 DISTANCE_THRESHOLD = 0.6
+SCAN_TIMEOUT_SECONDS = 20
+UNMATCHED_FRAMES_REQUIRED = 8  # ~1 second of consistent "no match" before giving up
+SCALE = 0.5  # frame downscale factor for detection speed vs accuracy
 
 st.set_page_config(page_title="Face Attendance", layout="wide", page_icon="✅")
 
@@ -83,6 +90,7 @@ def load_encodings():
 
 
 def authenticate_flexible(identifier, password):
+    """Allow login with either Django username or email."""
     user = authenticate(username=identifier, password=password)
     if user is None and "@" in identifier:
         try:
@@ -120,7 +128,7 @@ for key, default in [("scanning", False), ("result", None), ("admin_user", None)
 
 
 # ============================================================
-# MAIN: Take Attendance
+# MAIN: Take Attendance (fully automatic, continuous scan)
 # ============================================================
 st.title("✅ Face Attendance")
 st.write("")
@@ -137,12 +145,19 @@ elif st.session_state.result is not None:
     result = st.session_state.result
 
     with center:
-        if result["status"] == "not_found":
-            st.error("❌ Face detected, but not registered in the system.")
-            if st.button("📷  Try Again", type="primary", use_container_width=True):
+        if result["status"] == "timeout":
+            st.warning("⏱️ No recognized face found within the time limit.")
+            if st.button("📷  Take Attendance", type="primary", use_container_width=True):
                 st.session_state.result = None
                 st.session_state.scanning = True
                 st.rerun()
+        elif result["status"] == "not_found":
+            st.error("❌ Face detected, but not registered in the system.")
+            time.sleep(2.5)
+            st.session_state.result = None
+            st.session_state.scanning = True
+            st.cache_data.clear()
+            st.rerun()
         else:
             if result["status"] == "attendance marked!":
                 st.success(f"✅ **{result['name']}** ({result['student_id']}) — attendance marked!")
@@ -151,64 +166,103 @@ elif st.session_state.result is not None:
             else:
                 st.error("Face not recognized.")
 
-            if st.button("📷  Scan Next Student", type="primary", use_container_width=True):
-                st.session_state.result = None
-                st.session_state.scanning = True
-                st.cache_data.clear()
-                st.rerun()
+            time.sleep(2)
+            st.session_state.result = None
+            st.session_state.scanning = True
+            st.cache_data.clear()
+            st.rerun()
 
 else:
     with center:
-        st.info("📸 Position your face clearly, then take a photo.")
-        photo = st.camera_input("Camera", label_visibility="collapsed")
+        frame_slot = st.empty()
+        status_slot = st.empty()
+        cancel_slot = st.empty()
 
-        if st.button("✋ Cancel", use_container_width=True):
+        if cancel_slot.button("✋ Stop", use_container_width=True):
             st.session_state.scanning = False
             st.rerun()
 
-        if photo is not None:
-            known_encodings, known_ids = load_encodings()
+    known_encodings, known_ids = load_encodings()
 
-            if not known_ids:
-                st.error("No known faces loaded. Ask an admin to add students first.")
-            else:
-                image = Image.open(photo).convert("RGB")
-                image_np = np.array(image)
-                face_locations = face_recognition.face_locations(image_np)
+    if not known_ids:
+        with center:
+            st.error("No known faces loaded. Ask an admin to add students first.")
+        st.session_state.scanning = False
+    else:
+        video = cv2.VideoCapture(0)
+        start_time = time.time()
+        found = False
+        unmatched_streak = 0
 
-                if len(face_locations) == 0:
-                    st.warning("No face detected. Try again with better lighting/framing.")
-                else:
-                    encoding = face_recognition.face_encodings(
-                        image_np, known_face_locations=[face_locations[0]]
-                    )[0]
-                    distances = face_recognition.face_distance(known_encodings, encoding)
-                    best_idx = int(distances.argmin())
-                    best_distance = distances[best_idx]
+        while time.time() - start_time < SCAN_TIMEOUT_SECONDS:
+            ok, frame = video.read()
+            if not ok:
+                continue
 
-                    if best_distance < DISTANCE_THRESHOLD:
-                        student_id = known_ids[best_idx]
-                        student, status = mark_attendance(student_id)
-                        if student is None:
-                            st.session_state.result = {
-                                "name": None, "student_id": student_id, "status": "not_found",
-                            }
-                        else:
-                            st.session_state.result = {
-                                "name": student.name, "student_id": student.student_id, "status": status,
-                            }
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            small = cv2.resize(rgb_frame, (0, 0), fx=SCALE, fy=SCALE)
+            face_locations = face_recognition.face_locations(small)
+
+            if len(face_locations) == 0:
+                unmatched_streak = 0
+
+            display_frame = rgb_frame.copy()
+            scale_back = int(1 / SCALE)
+
+            for (top, right, bottom, left) in face_locations:
+                encoding = face_recognition.face_encodings(
+                    small, known_face_locations=[(top, right, bottom, left)]
+                )[0]
+                distances = face_recognition.face_distance(known_encodings, encoding)
+                best_idx = int(distances.argmin())
+                best_distance = distances[best_idx]
+
+                box_top = top * scale_back
+                box_right = right * scale_back
+                box_bottom = bottom * scale_back
+                box_left = left * scale_back
+
+                if best_distance < DISTANCE_THRESHOLD:
+                    student_id = known_ids[best_idx]
+                    student, status = mark_attendance(student_id)
+                    if student is None:
+                        st.session_state.result = {
+                            "name": None, "student_id": student_id, "status": "not_found",
+                        }
                     else:
+                        st.session_state.result = {
+                            "name": student.name, "student_id": student.student_id, "status": status,
+                        }
+                    found = True
+                    cv2.rectangle(display_frame, (box_left, box_top), (box_right, box_bottom), (0, 255, 0), 3)
+                else:
+                    cv2.rectangle(display_frame, (box_left, box_top), (box_right, box_bottom), (0, 0, 255), 3)
+                    unmatched_streak += 1
+                    if unmatched_streak >= UNMATCHED_FRAMES_REQUIRED:
                         st.session_state.result = {
                             "name": None, "student_id": None, "status": "not_found",
                         }
+                        found = True
 
-                    st.session_state.scanning = False
-                    st.cache_data.clear()
-                    st.rerun()
+                break
+
+            frame_slot.image(display_frame, channels="RGB", width=420)
+            status_slot.info(f"🔍 Scanning... ({int(SCAN_TIMEOUT_SECONDS - (time.time() - start_time))}s left)")
+
+            if found:
+                break
+
+        video.release()
+        st.session_state.scanning = False
+
+        if not found:
+            st.session_state.result = {"name": None, "student_id": None, "status": "timeout"}
+
+        st.rerun()
 
 
 # ============================================================
-# SIDEBAR: Admin
+# SIDEBAR: Admin (hidden behind a click)
 # ============================================================
 if st.session_state.admin_user is None:
     if not st.session_state.show_login:
